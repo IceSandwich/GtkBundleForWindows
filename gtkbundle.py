@@ -19,23 +19,50 @@ VCPKG_ROOT = R"E:\Programs\vcpkg"                                  # vcpkg安装
 VCPKG_TRIPLET = "x64-windows"                                      # 架构
 GTK_PKG = "gtkmm"                                                  # 提取的包名称
 GTK_BUNDLE = R"E:\Program\gtkbundle"                               # 旧版bundle，用于提取pkg-config
-OUTPUT_DIR = R"F:\gtk4-bundle_{}".format(VCPKG_TRIPLET)            # 输出文件夹
+OUTPUT_DIR = R"F:\gtk3-bundle_{}".format(VCPKG_TRIPLET)            # 输出文件夹
 
 LogFile = None
 
+def ReadPkg(pkgName) -> dict:
+    """ 读取包信息 """
+    vcpkgFile = os.path.join(VCPKG_ROOT, "ports", pkgName, "vcpkg.json")
+
+    if os.path.exists(vcpkgFile): # 新旧版本的vcpkg，包管理不一样
+        f = open(vcpkgFile, 'r')
+        vcpkgJson = json.load(f)
+        vcpkgJson['isNewVcpkg'] = True
+        f.close()
+        return vcpkgJson
+    else:
+        f = open(os.path.join(VCPKG_ROOT, "ports", pkgName, "CONTROL"), 'r')
+        vcpkgJson = { x.split(':')[0].strip(): x.split(':')[1].strip() for x in f.readlines() if x.strip() != '' }
+        def delTag(x:str)->str: # 去掉后面的括号，比如 cairo[gobject] -> cairo 或者 libuuid (!windows&!osx) -> libuuid
+            def deltag(x:str, tag:str)->str:
+                startpoint = x.find(tag)
+                if startpoint == -1:
+                    return x.strip()
+                return x[:startpoint].strip()
+            return deltag(deltag(x, '['), '(')
+        if 'Build-Depends' in vcpkgJson:
+            vcpkgJson['dependencies'] = [ delTag(x) for x in vcpkgJson['Build-Depends'].split(',') ]
+        vcpkgJson['isNewVcpkg'] = False
+        f.close()
+        return vcpkgJson
+
 def PrintPkgInfo(pkgName) -> str:
-    """ 返回包名称 """
-    f = open(os.path.join(VCPKG_ROOT, "ports", pkgName, "vcpkg.json"), 'r')
-    vcpkgJson = json.load(f)
-    f.close()
-    print("- package {}, version {}".format(vcpkgJson["name"], vcpkgJson["version"]))
-    return vcpkgJson["name"]
+    """ 返回并打印包名称 """
+    vcpkgJson = ReadPkg(pkgName)
+    if vcpkgJson["isNewVcpkg"]:
+        print("- package {}, version {}, with new vcpkg.".format(vcpkgJson["name"], vcpkgJson["version"]))
+        return vcpkgJson["name"]
+    else:
+        print("- package {}, version {}".format(vcpkgJson["Source"], vcpkgJson["Version"]))
+        return vcpkgJson["Source"]
 
 def ReadDepends(pkgName:str, depends:set) -> bool:
     """ 读取依赖，依赖输出到depends中，若有新的依赖输出则返回true """
-    f = open(os.path.join(VCPKG_ROOT, "ports", pkgName, "vcpkg.json"), 'r')
-    vcpkgJson = json.load(f)
-    f.close()
+    vcpkgJson = ReadPkg(pkgName)
+
     if "dependencies" not in vcpkgJson: # no dependency package
         return False
     ret = False
@@ -66,9 +93,12 @@ def CopySingleFile(source:str, target:str):
     shutil.copy(source, os.path.join(OUTPUT_DIR, target))
     LogFile.write("{} -> {}\n".format(source, target))
 
-def CopyTree(sourceDir:str, targetDir:str):
-    """ 复制单个目录同时记录log，注意: sourceDir和targetDir不要带VCPKG_ROOT和OUTPUT_DIR """
-    dir_util.copy_tree(os.path.join(VCPKG_ROOT, sourceDir), os.path.join(OUTPUT_DIR, targetDir))
+def CopyTree(sourceDir:str, targetDir:str, WithHead:bool = False):
+    """ 复制单个目录同时记录log，注意: 当WithHead=False时，sourceDir不要带VCPKG_ROOT，targetDir永远不要带OUTPUT_DIR """
+    if WithHead:
+        dir_util.copy_tree(sourceDir, os.path.join(OUTPUT_DIR, targetDir))
+    else:
+        dir_util.copy_tree(os.path.join(VCPKG_ROOT, sourceDir), os.path.join(OUTPUT_DIR, targetDir))
     LogFile.write("{} -> {}\n".format(sourceDir, targetDir))
 
 def CopyPkg(pkgName):
@@ -89,6 +119,29 @@ def CopyPkg(pkgName):
 
     if 'gdk-pixbuf-2.0' in dirs: # for gdk-pixbuf package
         CopyTree(os.path.join(dirPath, "gdk-pixbuf-2.0"), "lib")
+
+def ReName(sourceDir:str, targetDir:str):
+    os.rename(os.path.join(OUTPUT_DIR, sourceDir), os.path.join(OUTPUT_DIR, targetDir))
+    LogFile.write("{} --> {}\n".format(sourceDir, targetDir))
+
+def CopyPc():
+    """ 仅当 gtk3 时使用 """
+    CopyTree(os.path.join(GTK_BUNDLE, "lib", "pkgconfig"), os.path.join("lib", "pkgconfig"))
+    for pkgName, pkgVer in [ ['gtk', '3.0'], ['pango', '1.0'], ['atk', '1.0'], ['pixman', '1'], ['glib', '2.0'], ['gtkmm', '3.0']]:
+        ReName(os.path.join("include", pkgName), os.path.join("include", "{}-{}".format(pkgName, pkgVer)))
+    ReName(os.path.join("include", "libpng15"), os.path.join("include", "libpng16"))
+
+    import gtkmakepkg
+    gtkmakepkg.OUTPUT_DIR = OUTPUT_DIR
+    gtkmakepkg.VCPKG_ROOT = VCPKG_ROOT
+    gtkmakepkg.VCPKG_TRIPLET = VCPKG_TRIPLET
+    MakePkgConfig = gtkmakepkg.MakePkgConfig
+
+    MakePkgConfig("cairomm", pkgName2="data", pcPkgName="cairomm")
+    MakePkgConfig("pangomm", pkgName2="pango", pcPkgName="pangomm")
+    MakePkgConfig("atkmm", pkgName2="atk", pcPkgName="atkmm")
+    MakePkgConfig("gtkmm", pkgName2="gtk", pcPkgName='gtkmm')
+    MakePkgConfig("gtkmm", pkgName2="gdk", pcPkgName='gdkmm')
 
 def main():
     # 读取包信息及其依赖

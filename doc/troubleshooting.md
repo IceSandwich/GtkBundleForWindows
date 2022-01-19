@@ -56,6 +56,7 @@ vcpkg install gtk
 
 看样子是文件编码问题罗，而且文件是`balancedtree.h`。
 找到那个文件，用记事本打开，改用Unicode编码保存即可。
+或者可以使用`gtkcodepage.py`，里面有个`LogFileFileName`变量可以设置log文件。它会将log里显示的文件转换为ANSI编码。
 
 ## 3. gtkmm
 
@@ -77,3 +78,8 @@ vcpkg install gtk
 
 如果连接Github较慢或经常中断，考虑换源。vcpkg似乎没有提供换源的方法，但可以修改其源码实现。比如修改msys源，可对这个文件进行修改。
 ![](images/11.PNG)
+
+# 包完整性问题
+
+不知道为何，gtk3没有生成pc文件，意味着pkg-config无法使用。
+这就需要自己写pc文件了。脚本中会自动运行`gtkmakepkg.py`，这里面是生成pc文件的代码。目前正在尝试解决中...
