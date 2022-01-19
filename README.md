@@ -16,7 +16,7 @@ Extract them somewhere else and use in Visual Studio.
 
 Currently provided:
 - gtkmm 4.4.0  (contain gtk)    x64-windows
-- ~~ gtkmm 3.22.2 (contain gtk)    x64-windows~~ (failed to bundle)
+- ~~gtkmm 3.22.2 (contain gtk)    x64-windows~~ (failed to bundle)
 - gtk   4.4.0                   x86-windows
 
 ## Can't find specify version?
